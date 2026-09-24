@@ -1,6 +1,6 @@
 # Nombres y apellidos completos: Yuliana Orihuela Lazo
 # Código de matrícula: 2024200514G
-# Tema y número del temario:  Perpetuidades y valuación de acciones con
+# Tema y número del temario: Perpetuidades y valuación de acciones con
 #                             dividendo estable en la BVL -Tema 27
 # Fecha de extracción: 22/09/2026
 """
@@ -254,12 +254,18 @@ def main():
 if __name__ == "__main__":
     main()
 
-#Importar 
 
+
+
+
+# Se muestran las primeras y últimas observaciones para comprobar que la serie fue descargada correctamente
 import pandas as pd
 df = pd.read_csv("datos_crudos/datos_crudos_2024200514G.csv")
 print(df[df.Ticker == "^TNX"][["Date", "Close", "Dividends"]].head(5))
-print(df[df.Ticker == "^TNX"][["Date", "Close"]].tail(5)) 
+print(df[df.Ticker == "^TNX"][["Date", "Close"]].tail(5))
+
+
+
 
 import os
 
@@ -268,8 +274,6 @@ nombre = "datos_crudos_2024200514G.csv"
 for raiz, carpetas, archivos in os.walk("/content"):
     if nombre in archivos:
         print("ENCONTRADO:", os.path.join(raiz, nombre))
-
-#Visualizar mis datos 
 import pandas as pd
 
 ruta = "/content/datos_crudos/datos_crudos_2024200514G.csv"
@@ -279,4 +283,6 @@ df = pd.read_csv(ruta)
 print("Filas y columnas:", df.shape)
 print("Columnas:", df.columns.tolist())
 
-df.head(20)
+df.head(3000)
+
+
