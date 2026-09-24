@@ -1,0 +1,282 @@
+# Nombres y apellidos completos: Yuliana Orihuela Lazo
+# Código de matrícula: 2024200514G
+# Tema y número del temario:  Perpetuidades y valuación de acciones con
+#                             dividendo estable en la BVL -Tema 27
+# Fecha de extracción: 22/09/2026
+"""
+01_extraccion_api.py
+Vía 1 (API) del proyecto de Finanzas I. Descarga precios diarios y dividendos
+de 10 emisores de la Bolsa de Valores de Lima (BVL), más dos series
+auxiliares para el modelo CAPM (Ke = Rf + Beta x ERP):
+  - EPU (iShares MSCI Peru ETF): proxy del mercado peruano, para calcular
+    el beta de cada emisor por regresión de retornos diarios.
+  - ^TNX (rendimiento del Tesoro de EE.UU. a 10 años): tasa libre de
+    riesgo (Rf). Es un rendimiento en %, no un precio: no se le calculan
+    retornos, se usa su cierre directamente (dividido entre 100).
+Todo se descarga mediante la librería `yfinance`, que consume la API
+pública de gráficos de Yahoo Finance.
+
+ENDPOINT DECLARADO
+-------------------
+`yfinance` no expone una URL editable: internamente llama al endpoint
+`https://query1.finance.yahoo.com/v8/finance/chart/<ticker>` (precios OHLCV)
+y a `.../v10/finance/quoteSummary/<ticker>?modules=... ` (acciones
+corporativas, incluidos los dividendos), con los parámetros que se declaran
+más abajo (start, end, interval). Se documenta aquí porque la consigna exige
+declarar el endpoint, aunque la petición HTTP la arme la propia librería.
+
+PARÁMETROS DECLARADOS (constantes, no fechas dinámicas tipo "hoy")
+-------------------------------------------------------------------
+FECHA_INICIO, FECHA_CORTE, INTERVALO: ver sección 1.
+
+MANEJO DE ERRORES
+-------------------
+Cada ticker se descarga dentro de un try/except independiente: un error en
+un emisor no detiene la extracción de los demás. `yfinance` no expone el
+código de respuesta HTTP de cada solicitud (la librería lo abstrae), así
+que el log registra en su lugar: éxito o fracaso, número de filas obtenidas
+y el mensaje de excepción exacto cuando falla. Esa es la evidencia
+verificable que sí se puede declarar con honestidad.
+
+GUARDADO DEL CRUDO
+--------------------
+El resultado de cada descarga se concatena y se guarda TAL COMO LO ENTREGA
+YAHOO, sin editar valores (los dividendos de los tickers .LM llegan como
+texto, p. ej. "0.377 PEN": aquí se guardan así; la conversión a número
+ocurre recién en 03_limpieza_datos.py, nunca en este script ni a mano).
+
+Instalación:  pip install yfinance pandas
+Ejecución:    python 01_extraccion_api.py   (ejecutar desde /codigo)
+Salidas:      ../datos_crudos/datos_crudos_<CODIGO_MATRICULA>.csv
+              ../log_ejecucion.txt (se agrega una línea por corrida)
+"""
+
+import sys
+import time
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import yfinance as yf
+
+# ----------------------------------------------------------------------------
+# 0. IDENTIFICACIÓN Y RUTAS
+# ----------------------------------------------------------------------------
+CODIGO_MATRICULA = "2024200514G"
+
+# Detecta si corre como archivo .py (tiene __file__) o pegado en una celda
+# de Jupyter/Colab (no tiene __file__): en ese caso usa la carpeta actual.
+try:
+    DIR_CODIGO = Path(__file__).resolve().parent     # .../codigo
+    DIR_PROYECTO = DIR_CODIGO.parent                 # carpeta N.3 completa
+except NameError:
+    DIR_ACTUAL = Path.cwd()
+    if DIR_ACTUAL.name == "2024200514":
+        DIR_PROYECTO = DIR_ACTUAL.parent
+    else:
+        # Notebook corriendo fuera de /codigo: se usa la carpeta actual
+        # como raíz del proyecto (crea datos_crudos/ y log aquí mismo).
+        DIR_PROYECTO = DIR_ACTUAL
+
+DIR_CRUDOS = DIR_PROYECTO / "datos_crudos"
+LOG_PATH = DIR_PROYECTO / "log_ejecucion.txt"
+
+DIR_CRUDOS.mkdir(parents=True, exist_ok=True)
+
+# ----------------------------------------------------------------------------
+# 1. PARÁMETROS CONGELADOS (la consigna prohíbe fechas dinámicas tipo "hoy")
+# ----------------------------------------------------------------------------
+FECHA_INICIO = "2018-01-01"
+FECHA_CORTE = "2025-12-31"      # último día que se INCLUYE
+INTERVALO = "1d"
+PAUSA_SEG = 1.5                  # pausa entre solicitudes (buena práctica)
+
+# ----------------------------------------------------------------------------
+# 2. LOS 10 EMISORES VALIDADOS EN 00_validacion_tickers.py
+#    (emisor, nemónico BVL, ticker exacto de yfinance)
+# ----------------------------------------------------------------------------
+EMISORES = [
+    ("Southern Copper Corporation",                    "SCCO",     "SCCO"),
+    ("Credicorp Ltd.",                                  "BAP",      "BAP"),
+    ("Cementos Pacasmayo S.A.A.",                       "CPACASC1", "CPACASC1.LM"),
+    ("Ferreycorp S.A.A.",                               "FERREYC1", "FERREYC1.LM"),
+    ("UNACEM Corp S.A.A.",                              "UNACEMC1", "UNACEMC1.LM"),
+    ("Alicorp S.A.A.",                                  "ALICORC1", "ALICORC1.LM"),
+    ("Unión de Cervecerías Peruanas Backus y Johnston", "BACKUSI1", "BACKUSI1.LM"),
+    ("Banco de Crédito del Perú",                       "CREDITC1", "CREDITC1.LM"),
+    ("Luz del Sur S.A.A.",                              "LUSURC1",  "LUSURC1.LM"),
+    ("Banco BBVA Perú",                                 "BBVAC1",   "BBVAC1.LM"),
+]
+
+# Series auxiliares para el modelo CAPM (Ke = Rf + Beta x ERP):
+#   - EPU: proxy del mercado peruano, para calcular el beta de cada emisor
+#     por regresión de retornos diarios (acción vs. índice).
+#   - ^TNX: rendimiento del Tesoro de EE.UU. a 10 años, usado como tasa
+#     libre de riesgo (Rf). OJO: ^TNX ya es un rendimiento en % (ej. 4.487
+#     significa 4.487%), no un precio. No se le calculan "retornos"; su
+#     valor de cierre se usa directamente (dividido entre 100) como Rf.
+AUXILIARES = [
+    ("Índice de mercado (proxy Perú)", "EPU_INDICE", "EPU"),
+    ("Tasa libre de riesgo (Tesoro EE.UU. 10 años)", "TNX_RF", "^TNX"),
+]
+
+
+# ----------------------------------------------------------------------------
+# 3. FUNCIONES
+# ----------------------------------------------------------------------------
+def fin_exclusivo(fecha_corte):
+    """yfinance trata `end` como exclusivo: se suma 1 día para incluirlo."""
+    return (pd.Timestamp(fecha_corte) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def registrar_log(lineas):
+    """Agrega líneas al log de ejecución (no lo sobrescribe entre corridas)."""
+    with open(LOG_PATH, "a", encoding="utf-8") as f:
+        for linea in lineas:
+            f.write(linea + "\n")
+
+
+def descargar_ticker(nombre, nemonico, ticker, categoria="Emisor BVL"):
+    """
+    Descarga el histórico diario crudo de un ticker (precios + dividendos)
+    desde el endpoint de Yahoo Finance vía yfinance.history().
+    Devuelve (DataFrame crudo o None, línea de log).
+    """
+    marca = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        t = yf.Ticker(ticker)
+        h = t.history(
+            start=FECHA_INICIO,
+            end=fin_exclusivo(FECHA_CORTE),
+            interval=INTERVALO,
+            auto_adjust=False,   # se conservan Close y Adj Close por separado
+            actions=True,        # incluye Dividends y Stock Splits
+        )
+
+        if h is None or h.empty:
+            linea = (f"{marca} | {ticker:<14} | FALLO | 0 filas | "
+                      f"sin datos en el periodo declarado")
+            print("  ", linea)
+            return None, linea
+
+        # Quitar el huso horario del índice: es una representación, no un
+        # cambio de valores. Los datos (Open, High, Low, Close, Dividends,
+        # tal cual llegan de Yahoo) no se tocan.
+        if getattr(h.index, "tz", None) is not None:
+            h.index = h.index.tz_localize(None)
+
+        h = h.reset_index()                 # la fecha pasa a ser columna
+        h = h.rename(columns={h.columns[0]: "Date"})
+        h.insert(0, "Ticker", ticker)
+        h.insert(0, "Nemonico_BVL", nemonico)
+        h.insert(0, "Emisor", nombre)
+        h.insert(0, "Categoria", categoria)
+
+        linea = (f"{marca} | {ticker:<14} | EXITO | {len(h)} filas | "
+                  f"{FECHA_INICIO} -> {FECHA_CORTE}")
+        print("  ", linea)
+        return h, linea
+
+    except Exception as e:
+        detalle = f"{type(e).__name__}: {e}"
+        linea = f"{marca} | {ticker:<14} | FALLO | 0 filas | {detalle}"
+        print("  ", linea)
+        # Traza completa solo a la consola, para depurar sin ensuciar el log
+        traceback.print_exc(file=sys.stdout)
+        return None, linea
+
+
+# ----------------------------------------------------------------------------
+# 4. EJECUCIÓN
+# ----------------------------------------------------------------------------
+def main():
+    print(f"yfinance {yf.__version__} | Python {sys.version.split()[0]}")
+    print(f"Ventana: {FECHA_INICIO} -> {FECHA_CORTE} | Intervalo: {INTERVALO}\n")
+
+    lineas_log = [
+        "=" * 78,
+        f"Corrida: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
+        f"Código de matrícula: {CODIGO_MATRICULA}",
+    ]
+
+    crudos, fallidos = [], []
+    for nombre, nemonico, ticker in EMISORES:
+        print(f"Descargando {ticker} ({nombre})...")
+        df, linea = descargar_ticker(nombre, nemonico, ticker, categoria="Emisor BVL")
+        lineas_log.append(linea)
+        if df is not None:
+            crudos.append(df)
+        else:
+            fallidos.append(ticker)
+        time.sleep(PAUSA_SEG)
+
+    print("\n--- Series auxiliares para el modelo CAPM (índice y Rf) ---")
+    for nombre, nemonico, ticker in AUXILIARES:
+        print(f"Descargando {ticker} ({nombre})...")
+        df, linea = descargar_ticker(nombre, nemonico, ticker, categoria="Auxiliar CAPM")
+        lineas_log.append(linea)
+        if df is not None:
+            crudos.append(df)
+        else:
+            fallidos.append(ticker)
+        time.sleep(PAUSA_SEG)
+
+    if not crudos:
+        print("\nNingún ticker devolvió datos. Revisa tu conexión o los "
+              "tickers en EMISORES. No se generó archivo de salida.")
+        registrar_log(lineas_log + ["Resultado: SIN DATOS, no se guardó CSV"])
+        return
+
+    crudo_final = pd.concat(crudos, ignore_index=True)
+    nombre_archivo = f"datos_crudos_{CODIGO_MATRICULA}.csv"
+    ruta_salida = DIR_CRUDOS / nombre_archivo
+    crudo_final.to_csv(ruta_salida, index=False, encoding="utf-8-sig")
+
+    resumen = (f"Guardado: {nombre_archivo} | {len(crudo_final)} filas totales | "
+               f"{len(crudos)}/{len(EMISORES) + len(AUXILIARES)} series OK "
+               f"({len(EMISORES)} emisores + {len(AUXILIARES)} auxiliares)")
+    print("\n" + "=" * 78)
+    print(resumen)
+    if fallidos:
+        print("Fallaron:", ", ".join(fallidos))
+        print("Si el bloqueo persiste, documenta en incidencias_fuente.md y "
+              "solicita sustitución al docente con 5 días de anticipación.")
+
+    lineas_log.append(resumen)
+    if fallidos:
+        lineas_log.append("Fallaron: " + ", ".join(fallidos))
+    registrar_log(lineas_log)
+    print(f"\nLog actualizado en: {LOG_PATH}")
+    print(f"Archivo crudo en:    {ruta_salida}")
+
+
+if __name__ == "__main__":
+    main()
+
+#Importar 
+
+import pandas as pd
+df = pd.read_csv("datos_crudos/datos_crudos_2024200514G.csv")
+print(df[df.Ticker == "^TNX"][["Date", "Close", "Dividends"]].head(5))
+print(df[df.Ticker == "^TNX"][["Date", "Close"]].tail(5)) 
+
+import os
+
+nombre = "datos_crudos_2024200514G.csv"
+
+for raiz, carpetas, archivos in os.walk("/content"):
+    if nombre in archivos:
+        print("ENCONTRADO:", os.path.join(raiz, nombre))
+
+#Visualizar mis datos 
+import pandas as pd
+
+ruta = "/content/datos_crudos/datos_crudos_2024200514G.csv"
+
+df = pd.read_csv(ruta)
+
+print("Filas y columnas:", df.shape)
+print("Columnas:", df.columns.tolist())
+
+df.head(20)
