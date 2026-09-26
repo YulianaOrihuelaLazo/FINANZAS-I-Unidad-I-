@@ -1,0 +1,26 @@
+PRUEBA SOBRE LA BRECHA (Precio de mercado - Valor teorico) / Precio
+
+--- MUESTRA COMPLETA (79 obs, sin filtrar eventos) ---
+Observaciones: 79
+Brecha promedio: -0.2770 (-27.70%)
+Desviacion estandar: 1.1311
+Prueba t (H0: brecha promedio = 0): t=-2.1770 | p-valor=0.032506
+Prueba de Wilcoxon: W=1329.0000 | p-valor=0.219952
+Interpretacion: p-valor < 0.05: se rechaza H0, la brecha promedio es estadisticamente distinta de cero.
+
+EVENTOS DE DIVIDENDO ATIPICO EXCLUIDOS EN EL ANALISIS DE ROBUSTEZ (documentados con fuente primaria, ver detalle debajo):
+  - ALICORC1.LM (2021): Dividendo extraordinario de S/ 0.585/accion aprobado el 26-jul-2021, adicional al reparto regular. El total distribuido en 2021 (S/713.6 MM) triplico el de 2020 y 2022 (~S/213.6 MM cada uno).
+    Fuente: Alicorp S.A.A. (2021). Resultados 2T21. https://www.alicorp.com.pe/media/conference_calls/Alicorp_Earnings_Report_2Q21_ES_VF.pdf
+  - BACKUSI1.LM (2021): La empresa no pago dividendo ordinario desde marzo de 2018; el pago del 25-jun-2021 correspondio a utilidades represadas. Un Hecho de Importancia posterior (05-dic-2025) confirma que el Directorio aun distribuia, casi 4 anos despues, el remanente de utilidades del ejercicio 2021 (S/2,935.14 MM en conjunto con 2022), evidenciando un patron de distribucion irregular y prolongado. El PDF original del Hecho de Importancia en smv.gob.pe no fue accesible al momento de la consulta (portal con bloqueo de solicitudes automatizadas, ver incidencias_fuente.md); se cita el reporte periodistico que transcribe su contenido.
+    Fuente: Redaccion Gestion. (2025, 10 de diciembre). Backus repartira S/ 2,935 millones en utilidades a sus accionistas mayoritarios: ¿quienes son? Gestion. https://gestion.pe/economia/empresas/backus-repartira-s-2935-millones-en-utilidades-a-sus-accionistas-mayoritarios-quienes-son-noticia/
+  - CPACASC1.LM (2021): Dividendo de S/0.79/accion (~S/366.7 MM) pagado en 2021, declarado explicitamente por la empresa como proveniente de resultados acumulados de los ejercicios 2014 a 2019, no de las utilidades de 2021.
+    Fuente: Cementos Pacasmayo S.A.A. (2021). Form 6-K, SEC. https://www.sec.gov/Archives/edgar/data/1221029/000121390021017459/ea138327ex99-1_cementospacas.htm
+
+--- ANALISIS DE ROBUSTEZ (excluyendo los 3 eventos documentados) ---
+Observaciones: 76
+Brecha promedio: -0.0970 (-9.70%)
+Desviacion estandar: 0.6536
+Prueba t (H0: brecha promedio = 0): t=-1.2943 | p-valor=0.199519
+Prueba de Wilcoxon: W=1329.0000 | p-valor=0.487829
+Interpretacion: p-valor >= 0.05: no se rechaza H0, no hay evidencia de que la brecha promedio sea distinta de cero.
+
